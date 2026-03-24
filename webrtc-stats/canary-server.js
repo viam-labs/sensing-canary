@@ -135,6 +135,9 @@ async function runWebrtcTest(params) {
 
   const browser = await puppeteer.launch({
     headless: true,
+    // Raise the CDP protocol timeout to comfortably exceed the test duration.
+    // The default 180s is too short for multi-camera runs (e.g. 3 cams × 60s = 180s + buffer).
+    protocolTimeout: testTimeoutMs + 60_000,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
