@@ -7,7 +7,11 @@
       "api_key": "REPLACE_ME",
       "part_id": "08852a48-cafb-47fc-a747-14982036c715",
       "test_profiles": [
-        "realsense"
+        "realsense",
+        "viamrtsp"
+      ],
+      "onvif_credentials": [
+        {"user": "REPLACE_ME", "pass": "REPLACE_ME"}
       ],
       "persistent_resources": [
         "telegraf-sensor",
@@ -23,8 +27,7 @@
     "timezone": "America/New_York"
   },
   "alerts": {
-    "slack_webhook": "",
-    "whatsapp": true
+    "slack_webhook": ""
   },
   "logs": {
     "enabled": true,

@@ -83,7 +83,7 @@ cd <SKILL_DIR>
 
 - **logs**: `enabled`, `lookback_minutes`, `levels`
 - **schedule**: `cron_expr`, `timezone`
-- **alerts**: `slack_webhook`, `whatsapp`
+- **alerts**: `slack_webhook`
 - **runs_dir**: output directory (default: `runs`)
 
 ## Cron Registration
@@ -107,7 +107,7 @@ cron(action="add", job={
 
 Instead of independent runs every 30 minutes, the canary accumulates data within a single daily run folder (`runs/YYYY-MM-DD/`):
 
-- **First tick of the day**: Rollover (analyze previous day → WhatsApp report) → full setup (CLI) → WebRTC (browser) → full SDK collection. Budget ~30 minutes for this.
+- **First tick of the day**: Rollover (analyze previous day → Slack report) → full setup (CLI) → WebRTC (browser) → full SDK collection. Budget ~30 minutes for this.
 - **Subsequent ticks**: Lightweight probe only (single get_images per camera + telegraf + logs). Takes ~2 minutes.
 - **Lock file**: Prevents overlapping ticks. If a previous tick is still running, the new tick skips gracefully.
 
@@ -156,7 +156,7 @@ If found:
 - Read all files from that folder: `setup.json`, `<profile>/webrtc.json`, `<profile>/samples/*.json`, `machine/*_telegraf.json`, `machine/*_logs.json`
 - Run **Step 9: Analysis** on that data
 - Write `report.md` into that folder
-- Send WhatsApp summary (compact: key metrics + pass/fail per category)
+- Send Slack summary (compact: key metrics + pass/fail per category)
 
 If not found (first ever run), skip rollover.
 
@@ -355,6 +355,7 @@ After closing the browser, run a full SDK collection as the first sample of the 
 Read machine config via `get-config`. Match camera components to profiles by model:
 - `viam:camera:realsense` → realsense
 - `viam:orbbec:astra2` → orbbec
+- `viam:viamrtsp:rtsp` → viamrtsp
 
 Write `/tmp/canary-runtime.json` with machine credentials + all discovered cameras. **Always include the `model` field** — profiles use it to validate they're running against the correct hardware:
 ```json
@@ -363,7 +364,8 @@ Write `/tmp/canary-runtime.json` with machine credentials + all discovered camer
     "name": "...", "address": "...", "api_key_id": "...", "api_key": "...", "part_id": "...",
     "cameras": [
       { "name": "realsense-348522073801", "profile": "realsense", "model": "viam:camera:realsense", "type": "3d" },
-      { "name": "orbbec-astra2", "profile": "orbbec", "model": "viam:orbbec:astra2", "type": "3d" }
+      { "name": "orbbec-astra2", "profile": "orbbec", "model": "viam:orbbec:astra2", "type": "3d" },
+      { "name": "rtsp-cam-1", "profile": "viamrtsp", "model": "viam:viamrtsp:rtsp", "type": "2d" }
     ],
     "telegraf_sensor": { "name": "telegraf-sensor" }
   }],
@@ -496,9 +498,9 @@ Read entries as `data["entries"]` (top-level key per `canary.logs.v1` schema).
 
 Write `TODAY_DIR/report.md` with sections for each category above.
 
-### WhatsApp Summary
+### Slack Summary
 
-Compact format for WhatsApp (no markdown tables, no headers):
+Compact format for Slack (no markdown tables, no headers):
 
 ```
 🐤 Canary Report — YYYY-MM-DD
@@ -513,6 +515,11 @@ Probes: XX/XX ok
 get_images p50: XXms  p95: XXms
 PCD: XXms avg (N calls)
 WebRTC TTFF: XXs
+Probes: XX/XX ok
+
+*viamrtsp (ONVIF/H264)*
+get_images p50: XXms  p95: XXms
+WebRTC TTFF: XXs (RTP passthrough)
 Probes: XX/XX ok
 
 *Machine*
