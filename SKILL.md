@@ -83,7 +83,7 @@ cd <SKILL_DIR>
 
 - **logs**: `enabled`, `lookback_minutes`, `levels`
 - **schedule**: `cron_expr`, `timezone`
-- **alerts**: `slack_webhook`
+- **alerts**: `slack_webhook`, `slack_token`, `slack_channel`
 - **runs_dir**: output directory (default: `runs`)
 
 ## Cron Registration
@@ -165,7 +165,7 @@ If found:
 - Read all files from that folder: `setup.json`, `<profile>/webrtc.json`, `<profile>/samples/*.json`, `machine/*_telegraf.json`, `machine/*_logs.json`
 - Run **Step 9: Analysis** on that data
 - Write `report.md` into that folder
-- Send Slack summary (compact: key metrics + pass/fail per category)
+- Send Slack summary: post compact message via webhook, then upload `report.md` as a file attachment (see Step 9: Slack Summary)
 
 If not found (first ever run), skip rollover.
 
