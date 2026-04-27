@@ -117,7 +117,16 @@ Instead of independent runs every 30 minutes, the canary accumulates data within
 
 Every cron tick follows this flow:
 
-### 0. Determine state
+### 0. Pull latest code
+
+```bash
+cd <SKILL_DIR>
+git pull --ff-only origin main
+```
+
+If the pull fails (e.g. local changes), log a warning and continue with the current code. Do not force-reset.
+
+### 0.1. Determine state
 
 ```
 SKILL_DIR = directory containing this SKILL.md
@@ -352,10 +361,12 @@ After closing the browser, run a full SDK collection as the first sample of the 
 
 #### Build runtime config
 
-Read machine config via `get-config`. Match camera components to profiles by model:
+Read machine config via `get-config`. Match components to profiles by model:
 - `viam:camera:realsense` → realsense
 - `viam:orbbec:astra2` → orbbec
 - `viam:viamrtsp:rtsp` → viamrtsp
+- `viam:system-audio:microphone` → system-audio
+- `viam:system-audio:speaker` → system-audio
 
 Write `/tmp/canary-runtime.json` with machine credentials + all discovered cameras. **Always include the `model` field** — profiles use it to validate they're running against the correct hardware:
 ```json
