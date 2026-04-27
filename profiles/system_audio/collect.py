@@ -46,6 +46,8 @@ EXPECTED_DISCOVERY_API_SPK = "rdk:component:audio_out"
 # Audio stream test defaults
 DEFAULT_STREAM_CODEC = AudioCodec.PCM16
 DEFAULT_STREAM_DURATION_S = 3.0
+CODEC_TEST_DURATION_S = 1.0
+TEST_CODECS = [AudioCodec.PCM16, AudioCodec.PCM32, AudioCodec.PCM32_FLOAT, AudioCodec.MP3]
 DEFAULT_LATENCY_SAMPLE_DURATION_S = 1.0
 DEFAULT_LATENCY_SAMPLES = 5
 
@@ -161,6 +163,9 @@ class SystemAudioProfile:
         result["profile_data"]["audio_stream"] = stream_data
         result["profile_data"]["audio_staleness"] = staleness_data
         result["profile_data"]["latency_samples"] = await self._collect_mic_latency_samples(mic)
+
+        # Multi-codec test
+        result["profile_data"]["codec_test"] = await self._test_codecs(mic)
 
         # Streaming mode tests: infinite-with-stop and historical replay
         result["profile_data"]["infinite_stream"] = await self._test_infinite_stream(mic)
@@ -393,6 +398,81 @@ class SystemAudioProfile:
         }
 
     # ------------------------------------------------------------------
+    # Codec tests
+    # ------------------------------------------------------------------
+
+    async def _test_codecs(self, mic) -> dict:
+        """Test get_audio with each codec (PCM16, PCM32, PCM32_FLOAT, MP3).
+
+        Runs a short stream per codec and records whether it succeeded,
+        chunk count, total bytes, and audio_info from the first chunk.
+        """
+        duration_s = self.profile_config.get("codec_test_duration_s", CODEC_TEST_DURATION_S)
+        codecs = self.profile_config.get("test_codecs", TEST_CODECS)
+        results = []
+
+        for codec in codecs:
+            entry = {
+                "codec": codec,
+                "ttfc_ms": None,
+                "chunk_count": 0,
+                "total_bytes": 0,
+                "total_elapsed_ms": None,
+                "audio_info": None,
+                "error": None,
+            }
+
+            t0 = time.monotonic()
+            try:
+                stream = await mic.get_audio(
+                    codec=codec,
+                    duration_seconds=duration_s,
+                    previous_timestamp_ns=0,
+                )
+            except Exception as e:
+                entry["total_elapsed_ms"] = round((time.monotonic() - t0) * 1000, 1)
+                entry["error"] = f"get_audio failed: {e}"
+                results.append(entry)
+                continue
+
+            first_chunk = True
+            chunk_count = 0
+            total_bytes = 0
+
+            try:
+                async for chunk in stream:
+                    now = time.monotonic()
+                    if first_chunk:
+                        entry["ttfc_ms"] = round((now - t0) * 1000, 1)
+                        first_chunk = False
+                        info = chunk.audio.audio_info
+                        if info is not None:
+                            entry["audio_info"] = {
+                                "codec": getattr(info, "codec", None),
+                                "sample_rate_hz": getattr(info, "sample_rate_hz", None),
+                                "num_channels": getattr(info, "num_channels", None),
+                            }
+
+                    chunk_count += 1
+                    chunk_data = chunk.audio.audio_data
+                    if isinstance(chunk_data, (bytes, bytearray)):
+                        total_bytes += len(chunk_data)
+            except Exception as e:
+                entry["error"] = f"stream error after {chunk_count} chunks: {e}"
+
+            entry["total_elapsed_ms"] = round((time.monotonic() - t0) * 1000, 1)
+            entry["chunk_count"] = chunk_count
+            entry["total_bytes"] = total_bytes
+            results.append(entry)
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "duration_per_codec_s": duration_s,
+            "codecs_tested": len(results),
+            "results": results,
+        }
+
+    # ------------------------------------------------------------------
     # Streaming mode tests
     # ------------------------------------------------------------------
 
@@ -477,8 +557,8 @@ class SystemAudioProfile:
         """Test get_audio with previous_timestamp_ns set to a recent past timestamp.
 
         Records the current time, waits a few seconds for audio to buffer,
-        then requests audio starting from the recorded timestamp. Historical
-        data should arrive faster than real-time since it's already buffered.
+        then requests audio starting from the recorded timestamp. The module
+        throttles historical delivery with historical_throttle_ms (default 50ms).
         """
         codec = self.profile_config.get("stream_codec", DEFAULT_STREAM_CODEC)
         wait_s = self.profile_config.get("historical_wait_s", HISTORICAL_WAIT_S)
@@ -490,16 +570,35 @@ class SystemAudioProfile:
             "duration_requested_s": duration_s,
             "wait_before_request_s": wait_s,
             "previous_timestamp_ns": None,
-            "ttfc_ms": None,
-            "chunk_count": 0,
-            "total_bytes": 0,
-            "total_elapsed_ms": None,
+            "live_capture": None,
+            "historical_replay": None,
+            "data_match": None,
             "error": None,
         }
 
-        # Record timestamp and wait for audio to accumulate in the buffer
+        # Step 1: Capture live audio and record the timestamp
         recorded_ns = time.time_ns()
         result["previous_timestamp_ns"] = recorded_ns
+
+        live_bytes = bytearray()
+        try:
+            live_stream = await mic.get_audio(
+                codec=codec,
+                duration_seconds=duration_s,
+                previous_timestamp_ns=0,
+            )
+            async for chunk in live_stream:
+                chunk_data = chunk.audio.audio_data
+                if isinstance(chunk_data, (bytes, bytearray)):
+                    live_bytes.extend(chunk_data)
+            result["live_capture"] = {
+                "total_bytes": len(live_bytes),
+                "sha256": hashlib.sha256(bytes(live_bytes)).hexdigest(),
+            }
+        except Exception as e:
+            result["live_capture"] = {"error": str(e)}
+
+        # Step 2: Wait for buffer to accumulate, then request historical audio
         await asyncio.sleep(wait_s)
 
         t0 = time.monotonic()
@@ -510,31 +609,55 @@ class SystemAudioProfile:
                 previous_timestamp_ns=recorded_ns,
             )
         except Exception as e:
-            result["total_elapsed_ms"] = round((time.monotonic() - t0) * 1000, 1)
-            result["error"] = f"get_audio call failed: {e}"
+            result["historical_replay"] = {
+                "total_elapsed_ms": round((time.monotonic() - t0) * 1000, 1),
+                "error": f"get_audio call failed: {e}",
+            }
             return result
 
         first_chunk_received = False
         chunk_count = 0
-        total_bytes = 0
+        hist_bytes = bytearray()
 
         try:
             async for chunk in stream:
                 now = time.monotonic()
                 if not first_chunk_received:
-                    result["ttfc_ms"] = round((now - t0) * 1000, 1)
+                    ttfc_ms = round((now - t0) * 1000, 1)
                     first_chunk_received = True
 
                 chunk_count += 1
                 chunk_data = chunk.audio.audio_data
                 if isinstance(chunk_data, (bytes, bytearray)):
-                    total_bytes += len(chunk_data)
+                    hist_bytes.extend(chunk_data)
         except Exception as e:
             result["error"] = f"stream iteration error after {chunk_count} chunks: {e}"
 
-        result["total_elapsed_ms"] = round((time.monotonic() - t0) * 1000, 1)
-        result["chunk_count"] = chunk_count
-        result["total_bytes"] = total_bytes
+        result["historical_replay"] = {
+            "ttfc_ms": ttfc_ms if first_chunk_received else None,
+            "chunk_count": chunk_count,
+            "total_bytes": len(hist_bytes),
+            "total_elapsed_ms": round((time.monotonic() - t0) * 1000, 1),
+            "sha256": hashlib.sha256(bytes(hist_bytes)).hexdigest(),
+        }
+
+        # Step 3: Compare live vs historical
+        if live_bytes and hist_bytes:
+            live_hash = result["live_capture"].get("sha256")
+            hist_hash = result["historical_replay"]["sha256"]
+            # Check if historical data is a prefix/subset of live data
+            overlap = min(len(live_bytes), len(hist_bytes))
+            matching_bytes = sum(
+                1 for a, b in zip(live_bytes[:overlap], hist_bytes[:overlap]) if a == b
+            )
+            result["data_match"] = {
+                "hashes_equal": live_hash == hist_hash,
+                "live_bytes": len(live_bytes),
+                "historical_bytes": len(hist_bytes),
+                "overlap_bytes": overlap,
+                "matching_bytes": matching_bytes,
+                "match_ratio": round(matching_bytes / overlap, 4) if overlap > 0 else None,
+            }
 
         return result
 

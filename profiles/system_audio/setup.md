@@ -125,7 +125,7 @@ get_audio(codec="pcm16", duration_seconds=2.0, previous_timestamp_ns=<recorded_n
 
 **Observe:**
 - Does historical audio arrive? Or does the module error/return empty?
-- Is TTFC faster than live streaming? (Historical data is already buffered, so delivery should be near-instant.)
+- Is TTFC comparable to live streaming? (The module throttles historical chunk delivery with `historical_throttle_ms`, default 50ms between chunks.)
 - Is the total audio data consistent with the requested duration?
 - If the timestamp is too far in the past (beyond the circular buffer), does the module return a useful error or silently return partial data?
 
