@@ -485,6 +485,17 @@ Analyze each profile separately, then compare:
 - **Frame consistency**: data_bytes variance across probes (sudden drops = concern)
 - **Cross-profile comparison**: latency/reliability differences between realsense and orbbec
 
+**Audio — system-audio profile (from `system-audio/samples/`):**
+
+- **get_properties**: Are `sample_rate_hz` and `num_channels` populated and consistent across probes?
+- **Audio stream**: TTFC (time to first chunk), total_bytes > 0, chunk delivery rate. Compare across probes for stability.
+- **Staleness**: Are audio hashes unique across consecutive samples? Identical hashes = frozen/silent source.
+- **Codec support**: Which codecs succeeded (PCM16, PCM32, PCM32_FLOAT, MP3)? Any that errored? Compare total_bytes across codecs for same duration — PCM32 should be ~2x PCM16.
+- **Historical replay**: Does `data_match.match_ratio` confirm the module returns the correct buffered audio? Low match ratio = historical data is wrong or missing. Note: module throttles delivery at 50ms/chunk (`historical_throttle_ms`).
+- **Infinite stream**: Did client-side cancellation work cleanly (`cancelled_cleanly: true`)? Any errors or hangs?
+- **Probe reliability**: % of audio probes with `get_audio` errors or 0 bytes received.
+- **Speaker**: Did `play()` and `do_command` (set_volume, stop) succeed? Latency trends.
+
 **Telegraf — Resource Trends (from `machine/*_telegraf.json`):**
 - **Memory**: baseline (first sample) vs final, linear regression on RSS. Positive slope = leak candidate. Flag if slope suggests >10% growth per 24h.
 - **CPU**: mean, max, sustained high periods
@@ -531,6 +542,13 @@ Probes: XX/XX ok
 *viamrtsp (ONVIF/H264)*
 get_images p50: XXms  p95: XXms
 WebRTC TTFF: XXs (RTP passthrough)
+Probes: XX/XX ok
+
+*system-audio (microphone)*
+TTFC: XXms  stream bytes: XX KB/s
+Codecs: PCM16 ✓  PCM32 ✓  PCM32_FLOAT ✓  MP3 ✓/✗
+Historical match: XX%
+Staleness: X/X unique
 Probes: XX/XX ok
 
 *Machine*
