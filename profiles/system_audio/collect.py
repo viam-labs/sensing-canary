@@ -185,13 +185,8 @@ class SystemAudioProfile:
 
         result["latency_ms"] = round(elapsed_ms, 1)
         result["raw"] = {
-            "channel_count": getattr(props, "channel_count", None),
-            "sample_rate": getattr(props, "sample_rate", None),
-            "sample_size": getattr(props, "sample_size", None),
-            "is_big_endian": getattr(props, "is_big_endian", None),
-            "is_float": getattr(props, "is_float", None),
-            "is_interleaved": getattr(props, "is_interleaved", None),
-            "latency": getattr(props, "latency", None),
+            "sample_rate_hz": getattr(props, "sample_rate_hz", None),
+            "num_channels": getattr(props, "num_channels", None),
         }
 
         return result
@@ -244,17 +239,14 @@ class SystemAudioProfile:
                     first_chunk_received = True
 
                 chunk_count += 1
-                chunk_data = getattr(chunk, "chunk", None) or getattr(chunk, "data", b"")
-                if isinstance(chunk_data, (bytes, bytearray)):
-                    chunk_len = len(chunk_data)
-                else:
-                    chunk_len = 0
+                chunk_data = chunk.audio.audio_data
+                chunk_len = len(chunk_data) if isinstance(chunk_data, (bytes, bytearray)) else 0
                 total_bytes += chunk_len
                 chunk_sizes.append(chunk_len)
 
                 # Record audio_info from first few chunks for consistency check
                 if chunk_count <= 5:
-                    info = getattr(chunk, "audio_info", None) or getattr(chunk, "info", None)
+                    info = chunk.audio.audio_info
                     if info is not None:
                         audio_info_samples.append({
                             "chunk_index": chunk_count - 1,
@@ -309,7 +301,7 @@ class SystemAudioProfile:
                 # Collect all chunks from the short stream
                 audio_bytes = bytearray()
                 async for chunk in stream:
-                    chunk_data = getattr(chunk, "chunk", None) or getattr(chunk, "data", b"")
+                    chunk_data = chunk.audio.audio_data
                     if isinstance(chunk_data, (bytes, bytearray)):
                         audio_bytes.extend(chunk_data)
 
@@ -373,7 +365,7 @@ class SystemAudioProfile:
                 # Drain the stream to measure full round-trip
                 byte_count = 0
                 async for chunk in stream:
-                    chunk_data = getattr(chunk, "chunk", None) or getattr(chunk, "data", b"")
+                    chunk_data = chunk.audio.audio_data
                     if isinstance(chunk_data, (bytes, bytearray)):
                         byte_count += len(chunk_data)
 
@@ -451,7 +443,7 @@ class SystemAudioProfile:
                     first_chunk_received = True
 
                 chunk_count += 1
-                chunk_data = getattr(chunk, "chunk", None) or getattr(chunk, "data", b"")
+                chunk_data = chunk.audio.audio_data
                 if isinstance(chunk_data, (bytes, bytearray)):
                     total_bytes += len(chunk_data)
 
@@ -534,7 +526,7 @@ class SystemAudioProfile:
                     first_chunk_received = True
 
                 chunk_count += 1
-                chunk_data = getattr(chunk, "chunk", None) or getattr(chunk, "data", b"")
+                chunk_data = chunk.audio.audio_data
                 if isinstance(chunk_data, (bytes, bytearray)):
                     total_bytes += len(chunk_data)
         except Exception as e:
@@ -581,13 +573,8 @@ class SystemAudioProfile:
 
         result["latency_ms"] = round(elapsed_ms, 1)
         result["raw"] = {
-            "channel_count": getattr(props, "channel_count", None),
-            "sample_rate": getattr(props, "sample_rate", None),
-            "sample_size": getattr(props, "sample_size", None),
-            "is_big_endian": getattr(props, "is_big_endian", None),
-            "is_float": getattr(props, "is_float", None),
-            "is_interleaved": getattr(props, "is_interleaved", None),
-            "latency": getattr(props, "latency", None),
+            "sample_rate_hz": getattr(props, "sample_rate_hz", None),
+            "num_channels": getattr(props, "num_channels", None),
         }
 
         return result

@@ -228,7 +228,7 @@ async def _collect_audio_probe(robot, cam_config, result) -> dict:
             byte_count = 0
             chunk_count = 0
             async for chunk in stream:
-                chunk_data = getattr(chunk, "chunk", None) or getattr(chunk, "data", b"")
+                chunk_data = chunk.audio.audio_data
                 if isinstance(chunk_data, (bytes, bytearray)):
                     byte_count += len(chunk_data)
                 chunk_count += 1
@@ -260,8 +260,8 @@ async def _collect_audio_probe(robot, cam_config, result) -> dict:
             elapsed_ms = (time.monotonic() - t0) * 1000
             result["get_properties"] = {
                 "latency_ms": round(elapsed_ms, 1),
-                "channel_count": getattr(props, "channel_count", None),
-                "sample_rate": getattr(props, "sample_rate", None),
+                "sample_rate_hz": getattr(props, "sample_rate_hz", None),
+                "num_channels": getattr(props, "num_channels", None),
             }
         except Exception as e:
             elapsed_ms = (time.monotonic() - t0) * 1000
