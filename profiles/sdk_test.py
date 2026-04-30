@@ -33,8 +33,11 @@ logging.getLogger("grpc").setLevel(logging.WARNING)
 # Top-level imports required before RobotClient.at_address
 from viam.robot.client import RobotClient
 from viam.rpc.dial import Credentials, DialOptions
+from viam.components.audio_in import AudioIn
+from viam.components.audio_out import AudioOut
 from viam.components.camera import Camera
 from viam.components.sensor import Sensor
+from viam.media.audio import AudioCodec
 from viam.app.viam_client import ViamClient
 
 # Auto-discover profiles from this package's directory
@@ -151,16 +154,23 @@ async def collect_telegraf(robot, telegraf_config) -> dict:
     return result
 
 
+AUDIO_PROFILES = {"system-audio"}
+
+
 async def collect_probe(robot, cam_config) -> dict:
-    """Lightweight probe: single get_images call per camera, latency only."""
+    """Lightweight probe: single get_images (camera) or short get_audio (mic) / get_properties (speaker)."""
     cam_name = cam_config["name"]
+    profile = cam_config.get("profile", "base")
     result = {
         "camera": cam_name,
-        "profile": cam_config.get("profile", "base"),
+        "profile": profile,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "get_images": None,
         "errors": [],
     }
+
+    if profile in AUDIO_PROFILES:
+        return await _collect_audio_probe(robot, cam_config, result)
 
     try:
         cam = Camera.from_robot(robot, cam_name)
@@ -191,6 +201,77 @@ async def collect_probe(robot, cam_config) -> dict:
             "latency_ms": round(elapsed_ms, 1),
             "error": str(e),
         }
+
+    return result
+
+
+async def _collect_audio_probe(robot, cam_config, result) -> dict:
+    """Audio probe: short get_audio for microphones, get_properties for speakers."""
+    cam_name = cam_config["name"]
+    model = cam_config.get("model", "")
+
+    if "microphone" in model:
+        # Microphone probe: single short get_audio call
+        try:
+            mic = AudioIn.from_robot(robot, cam_name)
+        except Exception as e:
+            result["errors"].append(f"AudioIn not found: {e}")
+            return result
+
+        t0 = time.monotonic()
+        try:
+            stream = await mic.get_audio(
+                codec=AudioCodec.PCM16,
+                duration_seconds=1.0,
+                previous_timestamp_ns=0,
+            )
+            byte_count = 0
+            chunk_count = 0
+            async for chunk in stream:
+                chunk_data = chunk.audio.audio_data
+                if isinstance(chunk_data, (bytes, bytearray)):
+                    byte_count += len(chunk_data)
+                chunk_count += 1
+
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            result["get_audio"] = {
+                "latency_ms": round(elapsed_ms, 1),
+                "chunk_count": chunk_count,
+                "total_bytes": byte_count,
+            }
+        except Exception as e:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            result["get_audio"] = {
+                "latency_ms": round(elapsed_ms, 1),
+                "error": str(e),
+            }
+
+    elif "speaker" in model:
+        # Speaker probe: get_properties only
+        try:
+            speaker = AudioOut.from_robot(robot, cam_name)
+        except Exception as e:
+            result["errors"].append(f"AudioOut not found: {e}")
+            return result
+
+        t0 = time.monotonic()
+        try:
+            props = await speaker.get_properties()
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            result["get_properties"] = {
+                "latency_ms": round(elapsed_ms, 1),
+                "sample_rate_hz": getattr(props, "sample_rate_hz", None),
+                "num_channels": getattr(props, "num_channels", None),
+            }
+        except Exception as e:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            result["get_properties"] = {
+                "latency_ms": round(elapsed_ms, 1),
+                "error": str(e),
+            }
+
+    else:
+        result["errors"].append(f"Unknown audio model '{model}' for probe")
 
     return result
 

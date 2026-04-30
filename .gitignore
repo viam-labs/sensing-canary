@@ -4,3 +4,4 @@ __pycache__/
 .lock
 canary.json
 .venv
+CLAUDE.md
